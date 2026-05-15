@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-import {Component, NgZone, Inject, PLATFORM_ID} from '@angular/core';
-import {GoogleAuthProvider} from '@angular/fire/auth';
-import {Router} from '@angular/router';
-import {AuthService} from './../common/services/auth.service';
-import {UserModel} from './../common/models/user.model';
-import {MatSnackBar} from '@angular/material/snack-bar';
-import {handleErrorSnackbar} from '../utils/handleMessageSnackbar';
-import {environment} from '../../environments/environment';
-import {isPlatformBrowser} from '@angular/common';
+import { Component, NgZone, Inject, PLATFORM_ID } from '@angular/core';
+import { GoogleAuthProvider } from '@angular/fire/auth';
+import { Router } from '@angular/router';
+import { AuthService } from './../common/services/auth.service';
+import { UserModel } from './../common/models/user.model';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { handleErrorSnackbar } from '../utils/handleMessageSnackbar';
+import { environment } from '../../environments/environment';
+import { isPlatformBrowser } from '@angular/common';
 
 const HOME_ROUTE = '/';
 
@@ -56,13 +56,50 @@ export class LoginComponent {
     });
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void { }
+
+  loginWithSSO() {
+    this.loader = true;
+    this.invalidLogin = false;
+    this.errorMessage = '';
+
+    this.authService.signInForGoogleIdentityPlatform().subscribe({
+      next: (firebaseToken: string) => {
+        // The signInForGoogleIdentityPlatform method already stored the token and minimal user details
+        // in localStorage. We just need to redirect to trigger the AuthGuard.
+        this.ngZone.run(() => {
+          this.loader = false;
+          void this.router.navigate([HOME_ROUTE]);
+        });
+      },
+      error: error => {
+        this.loader = false;
+        console.log(error);
+        // Handle specific errors from the auth service
+        if (
+          error.message?.includes('timed out') ||
+          error.message?.includes('Access Denied')
+        ) {
+          this.handleLoginError(error);
+        } else {
+          this.handleLoginError(
+            error || {
+              message:
+                'An unexpected error occurred during sign-in. Please try again.',
+            },
+          );
+        }
+        console.error('FIREBASE Login Process Error:', error);
+      },
+    });
+  }
 
   loginWithGoogle() {
     this.loader = true;
     this.invalidLogin = false;
     this.errorMessage = '';
 
+    /*
     if (environment?.isLocal) {
       // This will use the Google Identity Services library to get an FIREBASE-compatible token.
       this.authService.signInWithGoogleFirebase().subscribe({
@@ -126,6 +163,36 @@ export class LoginComponent {
         },
       });
     }
+    */
+    this.authService.signInForGoogleIdentityPlatform().subscribe({
+      next: (firebaseToken: string) => {
+        // The signInForGoogleIdentityPlatform method already stored the token and minimal user details
+        // in localStorage. We just need to redirect to trigger the AuthGuard.
+        this.ngZone.run(() => {
+          this.loader = false;
+          void this.router.navigate([HOME_ROUTE]);
+        });
+      },
+      error: error => {
+        this.loader = false;
+        console.log(error);
+        // Handle specific errors from the auth service
+        if (
+          error.message?.includes('timed out') ||
+          error.message?.includes('Access Denied')
+        ) {
+          this.handleLoginError(error);
+        } else {
+          this.handleLoginError(
+            error || {
+              message:
+                'An unexpected error occurred during sign-in. Please try again.',
+            },
+          );
+        }
+        console.error('FIREBASE Login Process Error:', error);
+      },
+    });
   }
 
   private handleLoginError(error: any, postErrorAction?: () => void) {

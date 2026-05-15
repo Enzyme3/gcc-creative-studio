@@ -56,23 +56,32 @@ async def get_current_user(
     """
     try:
         decoded_token = {}
-        if config_service.ENVIRONMENT == "local":
+        #if config_service.ENVIRONMENT == "local":
             # --- Local: Use Firebase Auth ---
             # Verifies the token using the standard Firebase Admin SDK method.
-            logger.info("Verifying token using Firebase Admin SDK...")
-            decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
-        else:
+        #    logger.info("Verifying token using Firebase Admin SDK...")
+        #    decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
+        #else:
             # --- Development/Production: Use Google Identity Platform
             # (OIDC) ---
             # Verifies the Google-issued OIDC ID token. The audience must be the
             # OAuth 2.0 client ID of the Identity Platform-protected resource.
-            google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
-            decoded_token = await asyncio.to_thread(
-                id_token.verify_oauth2_token,
-                token,
-                google_auth_requests.Request(),
-                audience=google_token_audience,
-            )
+        #    google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
+        #    decoded_token = await asyncio.to_thread(
+        #        id_token.verify_oauth2_token,
+        #        token,
+        #        google_auth_requests.Request(),
+        #        audience=google_token_audience,
+        #    )
+
+        # using the dev/prodiction flow
+        google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
+        decoded_token = await asyncio.to_thread(
+            id_token.verify_oauth2_token,
+            token,
+            google_auth_requests.Request(),
+            audience=google_token_audience,
+        )
 
         email = decoded_token.get("email")
         name = decoded_token.get("name")
