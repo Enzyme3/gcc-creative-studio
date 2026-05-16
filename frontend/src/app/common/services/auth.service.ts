@@ -23,7 +23,7 @@ import {Router} from '@angular/router';
 import {UserModel, UserRolesEnum} from '../models/user.model';
 import {HttpClient, HttpHeaders, HttpErrorResponse} from '@angular/common/http';
 import {environment} from '../../../environments/environment';
-import {Auth, IdTokenResult} from '@angular/fire/auth';
+import {Auth, IdTokenResult, OAuthProvider, signInWithRedirect} from '@angular/fire/auth';
 import {UserService} from '../services/user.service';
 import {
   GoogleAuthProvider,
@@ -175,13 +175,15 @@ export class AuthService {
   }
 
   loginWithSSO() {
-    console.log('In auth service, loginWithSSO (oidc-client-ts)');
-    if (this.userManager) {
-      this.userManager.signinRedirect().catch((err: any) => {
-        console.error('OIDC signinRedirect error:', err);
+    console.log('In auth service, loginWithSSO (native Firebase/GCIP OIDC)');
+    if (isPlatformBrowser(this.platformId)) {
+      const provider = new OAuthProvider('oidc.keycloak-oidc');
+      provider.setCustomParameters({
+        prompt: 'select_account',
       });
-    } else {
-      console.error('UserManager not initialized');
+      signInWithRedirect(this.auth, provider).catch((err: any) => {
+        console.error('Firebase OIDC signinRedirect error:', err);
+      });
     }
   }
 
