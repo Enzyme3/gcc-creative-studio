@@ -23,7 +23,7 @@ import {Router} from '@angular/router';
 import {UserModel, UserRolesEnum} from '../models/user.model';
 import {HttpClient, HttpHeaders, HttpErrorResponse} from '@angular/common/http';
 import {environment} from '../../../environments/environment';
-import {Auth, IdTokenResult, OAuthProvider, signInWithRedirect, getRedirectResult} from '@angular/fire/auth';
+import {Auth, IdTokenResult, OAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged} from '@angular/fire/auth';
 import {UserService} from '../services/user.service';
 import {
   GoogleAuthProvider,
@@ -78,36 +78,39 @@ export class AuthService {
     this.loadSessionFromStorage();
 
     if (isPlatformBrowser(this.platformId)) {
-      // Listen for Firebase OIDC redirect login results on boot
-      getRedirectResult(this.auth)
-        .then((userCredential) => {
-          if (userCredential && userCredential.user) {
-            console.log('Firebase OIDC redirect login successful!', userCredential.user);
-            
-            userCredential.user.getIdTokenResult().then((idTokenResult) => {
-              const token = idTokenResult.token;
-              const expirationTime = Date.parse(idTokenResult.expirationTime);
+      // Listen to global Firebase Auth state changes to sync sessions automatically
+      onAuthStateChanged(this.auth, (user) => {
+        if (user) {
+          console.log('Firebase Auth State: User is logged in!', user);
+          
+          user.getIdTokenResult().then((idTokenResult) => {
+            const token = idTokenResult.token;
+            const expirationTime = Date.parse(idTokenResult.expirationTime);
 
-              this.firebaseIdToken = token;
-              this.firebaseTokenExpiry = expirationTime;
-              const session: FirebaseSession = { token, expiry: expirationTime };
-              localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+            this.firebaseIdToken = token;
+            this.firebaseTokenExpiry = expirationTime;
+            const session: FirebaseSession = { token, expiry: expirationTime };
+            localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
 
-              this.syncUserWithBackend$(token).subscribe({
-                next: () => {
-                  console.log('User synchronized with backend successfully.');
+            this.syncUserWithBackend$(token).subscribe({
+              next: () => {
+                console.log('User synchronized with backend successfully via authStateChanged.');
+                if (this.router.url.includes('/login')) {
                   void this.router.navigate(['/']);
-                },
-                error: (err) => {
-                  console.error('Backend sync failed:', err);
                 }
-              });
+              },
+              error: (err) => {
+                console.error('Backend sync failed:', err);
+              }
             });
-          }
-        })
-        .catch((error) => {
-          console.error('Firebase OIDC redirect result error:', error);
-        });
+          });
+        } else {
+          console.log('Firebase Auth State: User is logged out.');
+          this.firebaseIdToken = null;
+          this.firebaseTokenExpiry = null;
+          localStorage.removeItem(FIREBASE_SESSION_KEY);
+        }
+      });
       const settings: UserManagerSettings = {
         authority: environment.oidc.authority,
         client_id: environment.oidc.clientId,
