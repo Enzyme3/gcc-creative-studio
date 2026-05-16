@@ -29,6 +29,11 @@ import {
 import {Observable, from, throwError, of} from 'rxjs';
 import {catchError, tap, map, switchMap} from 'rxjs/operators';
 import {isPlatformBrowser} from '@angular/common';
+import {
+  UserManager,
+  UserManagerSettings,
+  User as OidcUser,
+} from 'oidc-client-ts';
 
 // Declare the 'google' global object from the Google Identity Services script
 declare const google: any;
@@ -55,6 +60,8 @@ export class AuthService {
   private firebaseIdToken: string | null = null; // To store the Firebase token for the test
   private firebaseTokenExpiry: number | null = null; // To store token expiration time (in ms)
 
+  private userManager: UserManager | null = null;
+
   constructor(
     private router: Router,
     private httpClient: HttpClient,
@@ -65,6 +72,75 @@ export class AuthService {
       prompt: 'select_account',
     });
     this.loadSessionFromStorage();
+
+    if (isPlatformBrowser(this.platformId)) {
+      const settings: UserManagerSettings = {
+        authority: 'http://localhost:8082/realms/creative-studio',
+        client_id: 'creative-studio-client',
+        redirect_uri: 'http://localhost:4200/login',
+        post_logout_redirect_uri: 'http://localhost:4200/login',
+        response_type: 'code',
+        scope: 'openid profile email',
+      };
+      this.userManager = new UserManager(settings);
+      this.initializeOidc();
+    }
+  }
+
+  private initializeOidc() {
+    const um = this.userManager;
+    if (!um) return;
+
+    um.getUser().then((user: OidcUser | null) => {
+      if (user) {
+        console.log('OIDC User loaded from storage:', user);
+        this.firebaseIdToken = user.id_token || null;
+      } else {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('code')) {
+          console.log('OIDC Code detected in URL, parsing...');
+          um.signinRedirectCallback()
+            .then((user: OidcUser) => {
+              console.log('OIDC Signin callback successful:', user);
+              this.firebaseIdToken = user.id_token || null;
+
+              const expirationTime = user.expires_at
+                ? user.expires_at * 1000
+                : Date.now() + 3600 * 1000;
+              const session: FirebaseSession = {
+                token: user.id_token!,
+                expiry: expirationTime,
+              };
+              localStorage.setItem(
+                FIREBASE_SESSION_KEY,
+                JSON.stringify(session),
+              );
+
+              this.syncUserWithBackend$(user.id_token!).subscribe(() => {
+                void this.router.navigate(['/']);
+              });
+            })
+            .catch((err: any) => {
+              console.error('OIDC Signin callback error:', err);
+            });
+        }
+      }
+    });
+  }
+
+  loginWithSSO() {
+    console.log('In auth service, loginWithSSO (oidc-client-ts)');
+    if (this.userManager) {
+      this.userManager.signinRedirect().catch((err: any) => {
+        console.error('OIDC signinRedirect error:', err);
+      });
+    } else {
+      console.error('UserManager not initialized');
+    }
+  }
+
+  setFirebaseIdToken(token: string) {
+    this.firebaseIdToken = token;
   }
 
   /**
@@ -249,7 +325,7 @@ export class AuthService {
     return of(this.firebaseIdToken!);
   }
 
-  private syncUserWithBackend$(token: string): Observable<UserModel> {
+  syncUserWithBackend$(token: string): Observable<UserModel> {
     const headers = new HttpHeaders().set('Authorization', `Bearer ${token}`);
     return this.httpClient
       .get<UserModel>(`${environment.backendURL}/users/me`, {headers})
