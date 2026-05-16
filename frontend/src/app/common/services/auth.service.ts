@@ -210,7 +210,7 @@ export class AuthService {
   loginWithSSO() {
     console.log('In auth service, loginWithSSO (native Firebase/GCIP OIDC)');
     if (isPlatformBrowser(this.platformId)) {
-      const provider = new OAuthProvider('oidc.keycloak-oidc');
+      const provider = new OAuthProvider('oidc.keycloak');
       provider.setCustomParameters({
         prompt: 'select_account',
       });
