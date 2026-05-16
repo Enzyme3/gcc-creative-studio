@@ -16,8 +16,10 @@
 
 import asyncio
 import logging
+import jwt
+from jwt import PyJWKClient
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from firebase_admin import auth
 
@@ -40,8 +42,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 logger = logging.getLogger(__name__)
 
+jwks_client = PyJWKClient(config_service.OIDC_JWKS_URL)
+
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     user_service: UserService = Depends(UserService),
 ) -> UserModel:
@@ -56,23 +61,54 @@ async def get_current_user(
     """
     try:
         decoded_token = {}
-        if config_service.ENVIRONMENT == "local":
+        #if config_service.ENVIRONMENT == "local":
             # --- Local: Use Firebase Auth ---
             # Verifies the token using the standard Firebase Admin SDK method.
-            logger.info("Verifying token using Firebase Admin SDK...")
-            decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
-        else:
+        #    logger.info("Verifying token using Firebase Admin SDK...")
+        #    decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
+        #else:
             # --- Development/Production: Use Google Identity Platform
             # (OIDC) ---
             # Verifies the Google-issued OIDC ID token. The audience must be the
             # OAuth 2.0 client ID of the Identity Platform-protected resource.
-            google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
-            decoded_token = await asyncio.to_thread(
-                id_token.verify_oauth2_token,
-                token,
-                google_auth_requests.Request(),
-                audience=google_token_audience,
-            )
+        #    google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
+        #    decoded_token = await asyncio.to_thread(
+        #        id_token.verify_oauth2_token,
+        #        token,
+        #        google_auth_requests.Request(),
+        #        audience=google_token_audience,
+        #    )
+
+        # 1. Check if IAP JWT header is present (Production Flow)
+        iap_jwt = request.headers.get("x-goog-iap-jwt-assertion")
+        
+        if iap_jwt:
+            logger.info("IAP JWT assertion found in headers. Verifying...")
+            
+            def verify_iap_jwt():
+                return id_token.verify_token(
+                    iap_jwt,
+                    google_auth_requests.Request(),
+                    audience=config_service.IAP_AUDIENCE,
+                    certs_url="https://www.googleapis.com/iap/signer/keys"
+                )
+            
+            decoded_token = await asyncio.to_thread(verify_iap_jwt)
+        else:
+            # 2. Fallback to Local Keycloak JWT verification (Development Flow)
+            logger.info("IAP header not found. Verifying OIDC token using Keycloak JWKS...")
+            
+            def decode_token():
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+                return jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience="creative-studio-client",
+                    options={"verify_iss": False}
+                )
+
+            decoded_token = await asyncio.to_thread(decode_token)
 
         email = decoded_token.get("email")
         name = decoded_token.get("name")

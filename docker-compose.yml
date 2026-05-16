@@ -19,7 +19,7 @@ services:
       dockerfile: Dockerfile
     container_name: creative-studio-backend
     ports:
-      - "9000:8080"
+      - "8080:8080"
     restart: unless-stopped
     depends_on:
       - postgres
@@ -100,6 +100,19 @@ services:
       - postgres
     restart: unless-stopped
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: creative-studio-keycloak
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    ports:
+      - "8082:8080"
+    volumes:
+    - keycloak_data:/opt/keycloak/data
+    command: start-dev
+    restart: unless-stopped
+
   pre-commit:
     build:
       context: .
@@ -112,3 +125,4 @@ services:
 volumes:
   backend_venv:
   postgres_data:
+  keycloak_data:
