@@ -127,6 +127,7 @@ export class AuthService {
             tokenVal,
           );
           this.firebaseIdToken = tokenVal;
+          this.firebaseTokenExpiry = Date.now() + 3600 * 1000;
 
           const session: FirebaseSession = {
             token: tokenVal,
@@ -151,6 +152,7 @@ export class AuthService {
               const expirationTime = user.expires_at
                 ? user.expires_at * 1000
                 : Date.now() + 3600 * 1000;
+              this.firebaseTokenExpiry = expirationTime;
               const session: FirebaseSession = {
                 token: user.id_token!,
                 expiry: expirationTime,

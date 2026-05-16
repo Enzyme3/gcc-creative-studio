@@ -16,6 +16,8 @@
 
 import asyncio
 import logging
+import jwt
+from jwt import PyJWKClient
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -39,6 +41,8 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 logger = logging.getLogger(__name__)
+
+jwks_client = PyJWKClient(config_service.OIDC_JWKS_URL)
 
 
 async def get_current_user(
@@ -74,14 +78,20 @@ async def get_current_user(
         #        audience=google_token_audience,
         #    )
 
-        # using the dev/prodiction flow
-        google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
-        decoded_token = await asyncio.to_thread(
-            id_token.verify_oauth2_token,
-            token,
-            google_auth_requests.Request(),
-            audience=google_token_audience,
-        )
+        # Verify Keycloak OIDC token using PyJWT and JWKS
+        logger.info("Verifying OIDC token using Keycloak JWKS...")
+        
+        def decode_token():
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            return jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience="creative-studio-client",
+                options={"verify_iss": False}
+            )
+
+        decoded_token = await asyncio.to_thread(decode_token)
 
         email = decoded_token.get("email")
         name = decoded_token.get("name")
