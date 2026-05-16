@@ -19,7 +19,7 @@ import logging
 import jwt
 from jwt import PyJWKClient
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from firebase_admin import auth
 
@@ -46,6 +46,7 @@ jwks_client = PyJWKClient(config_service.OIDC_JWKS_URL)
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     user_service: UserService = Depends(UserService),
 ) -> UserModel:
@@ -78,20 +79,36 @@ async def get_current_user(
         #        audience=google_token_audience,
         #    )
 
-        # Verify Keycloak OIDC token using PyJWT and JWKS
-        logger.info("Verifying OIDC token using Keycloak JWKS...")
+        # 1. Check if IAP JWT header is present (Production Flow)
+        iap_jwt = request.headers.get("x-goog-iap-jwt-assertion")
         
-        def decode_token():
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
-            return jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256"],
-                audience="creative-studio-client",
-                options={"verify_iss": False}
-            )
+        if iap_jwt:
+            logger.info("IAP JWT assertion found in headers. Verifying...")
+            
+            def verify_iap_jwt():
+                return id_token.verify_token(
+                    iap_jwt,
+                    google_auth_requests.Request(),
+                    audience=config_service.IAP_AUDIENCE,
+                    certs_url="https://www.googleapis.com/iap/signer/keys"
+                )
+            
+            decoded_token = await asyncio.to_thread(verify_iap_jwt)
+        else:
+            # 2. Fallback to Local Keycloak JWT verification (Development Flow)
+            logger.info("IAP header not found. Verifying OIDC token using Keycloak JWKS...")
+            
+            def decode_token():
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+                return jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience="creative-studio-client",
+                    options={"verify_iss": False}
+                )
 
-        decoded_token = await asyncio.to_thread(decode_token)
+            decoded_token = await asyncio.to_thread(decode_token)
 
         email = decoded_token.get("email")
         name = decoded_token.get("name")

@@ -53,6 +53,7 @@ class ConfigService(BaseSettings):
         default="", alias="IDENTITY_PLATFORM_ALLOWED_ORGS"
     )
     OIDC_JWKS_URL: str = "http://keycloak:8080/realms/creative-studio/protocol/openid-connect/certs"
+    IAP_AUDIENCE: str = ""
 
     # --- Storage ---
     # The defaults will be set in the validator below to prevent recursion.
