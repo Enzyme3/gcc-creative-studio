@@ -108,6 +108,8 @@ services:
       - KEYCLOAK_ADMIN_PASSWORD=admin
     ports:
       - "8082:8080"
+    volumes:
+    - keycloak_data:/opt/keycloak/data
     command: start-dev
     restart: unless-stopped
 
@@ -123,3 +125,4 @@ services:
 volumes:
   backend_venv:
   postgres_data:
+  keycloak_data:

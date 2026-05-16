@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+console.log(
+  'GLOBAL: auth.service.ts loaded! URL is:',
+  typeof window !== 'undefined' ? window.location.href : 'SSR',
+);
 import {Injectable, PLATFORM_ID, inject} from '@angular/core';
 import {Router} from '@angular/router';
 import {UserModel, UserRolesEnum} from '../models/user.model';
@@ -91,15 +95,55 @@ export class AuthService {
     const um = this.userManager;
     if (!um) return;
 
+    // 1. CAPTURE URL parameters and Href SYNCHRONOUSLY immediately on startup!
+    const startupUrl =
+      typeof window !== 'undefined' ? window.location.href : '';
+    const urlParams = new URLSearchParams(
+      typeof window !== 'undefined' ? window.location.search : '',
+    );
+    const hasToken = urlParams.has('token');
+    const hasCode = urlParams.has('code');
+    const tokenVal = urlParams.get('token');
+    const codeVal = urlParams.get('code');
+    const state = urlParams.get('state');
+
+    console.log('initializeOidc: Captured on startup:', {
+      hasToken,
+      hasCode,
+      startupUrl,
+    });
+
     um.getUser().then((user: OidcUser | null) => {
       if (user) {
         console.log('OIDC User loaded from storage:', user);
         this.firebaseIdToken = user.id_token || null;
       } else {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('code')) {
-          console.log('OIDC Code detected in URL, parsing...');
-          um.signinRedirectCallback()
+        // 2. Use the captured variables instead of reading the URL again!
+
+        // Case A: Direct token parameter (custom/gateway flow)
+        if (hasToken && tokenVal) {
+          console.log(
+            'OIDC Direct Token detected in URL (captured):',
+            tokenVal,
+          );
+          this.firebaseIdToken = tokenVal;
+
+          const session: FirebaseSession = {
+            token: tokenVal,
+            expiry: Date.now() + 3600 * 1000,
+          };
+          localStorage.setItem(FIREBASE_SESSION_KEY, JSON.stringify(session));
+
+          this.syncUserWithBackend$(tokenVal).subscribe(() => {
+            void this.router.navigate(['/']);
+          });
+        }
+        // Case B: Standard OIDC code parameter
+        else if (hasCode && codeVal) {
+          console.log('OIDC Code detected in URL (captured), parsing...');
+
+          // Pass the captured startupUrl to preserve the state query parameter!
+          um.signinRedirectCallback(startupUrl)
             .then((user: OidcUser) => {
               console.log('OIDC Signin callback successful:', user);
               this.firebaseIdToken = user.id_token || null;
