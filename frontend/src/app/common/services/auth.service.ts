@@ -79,10 +79,10 @@ export class AuthService {
 
     if (isPlatformBrowser(this.platformId)) {
       const settings: UserManagerSettings = {
-        authority: 'http://localhost:8082/realms/creative-studio',
-        client_id: 'creative-studio-client',
-        redirect_uri: 'http://localhost:4200/login',
-        post_logout_redirect_uri: 'http://localhost:4200/login',
+        authority: environment.oidc.authority,
+        client_id: environment.oidc.clientId,
+        redirect_uri: environment.oidc.redirectUri,
+        post_logout_redirect_uri: environment.oidc.redirectUri,
         response_type: 'code',
         scope: 'openid profile email',
       };
