@@ -61,27 +61,16 @@ from src.workspaces.workspace_controller import router as workspace_router
 
 def configure_cors(app):
     """Configures CORS middleware based on the environment."""
-    environment = getenv("ENVIRONMENT")
-    allowed_origins = []
-
-    if environment == "production":
-        frontend_url = getenv("FRONTEND_URL")
-        if not frontend_url:
-            raise ValueError(
-                "FRONTEND_URL environment variable not set in production"
-            )
-        allowed_origins.append(frontend_url)
-    elif environment in ["development", "test", "local"]:
-        allowed_origins.append("*")  # Allow all origins in development
-    else:
-        raise ValueError(
-            f"Invalid ENVIRONMENT: {environment}. Must be 'production', 'development' or 'local'",
-        )
+    allowed_origins = [
+        "http://localhost:4200",
+        "https://kwpark-gcc-creative-studio.web.app",
+        "https://kwpark-gcc-creative-studio.firebaseapp.com"
+    ]
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=environment == "production",
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

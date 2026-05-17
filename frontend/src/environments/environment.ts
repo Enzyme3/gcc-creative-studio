@@ -26,7 +26,7 @@ export const environment = {
   },
   production: true,
   isLocal: false,
-  backendURL: 'http://localhost:8080/api',
+  backendURL: 'https://cstudio-be-373927882219.us-central1.run.app/api',
   EMAIL_REGEX:
     /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/,
   ADMIN: 'admin',
