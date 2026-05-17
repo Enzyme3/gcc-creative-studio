@@ -12,24 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# modules/platform/outputs.tf
-
-output "backend_service_url" {
-  description = "The URL of the deployed backend service."
-  value       = module.backend_service.service_url # This one is correct
-}
-
-output "frontend_service_url" {
-  description = "The URL of the deployed frontend service."
-  value       = module.frontend_service.service_url
-}
-
-output "cloud_sql_connection_name" {
-  description = "The connection name of the Cloud SQL instance to be used by the bootstrap script."
-  value       = module.postgresql.connection_name
-}
-
 output "load_balancer_ip" {
   description = "The global static IP address of the HTTPS Load Balancer."
-  value       = module.load_balancer.load_balancer_ip
+  value       = google_compute_global_address.default.address
+}
+
+output "backend_service_id" {
+  description = "The unique numeric generated ID of the backend service."
+  value       = google_compute_backend_service.backend.generated_id
 }

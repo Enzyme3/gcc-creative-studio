@@ -36,15 +36,7 @@ BE_SERVICE_NAME="cstudio-be"
 FE_SERVICE_NAME="cstudio-fe"
 
 # script will automatically set these
-AUTO_FIREBASE_API_KEY=""           # Your Firebase Web API Key
-AUTO_FIREBASE_AUTH_DOMAIN=""       # Your Firebase Auth Domain (e.g., project-id.firebaseapp.com)
-AUTO_FIREBASE_PROJECT_ID=""        # Your Firebase Project ID
-AUTO_FIREBASE_STORAGE_BUCKET=""    # Your Firebase Storage Bucket (e.g., project-id.appspot.com)
-AUTO_FIREBASE_MESSAGING_SENDER_ID="" # Your Firebase Cloud Messaging Sender ID
-AUTO_FIREBASE_APP_ID=""            # Your Firebase Web App ID
-AUTO_FIREBASE_MEASUREMENT_ID=""    # Your Google Analytics Measurement ID
 AUTO_OAUTH_CLIENT_ID=""
-AUTO_FIREBASE_SITE_ID=""           # The discovered Firebase Hosting Site ID
 
 STATE_FILE=""
 REPO_ROOT=""
@@ -66,33 +58,6 @@ success() { echo -e "${C_GREEN}✅  $1${C_RESET}"; }
 step() { echo -e "\n${C_BLUE}--- Step $1: $2 ---${C_RESET}"; }
 
 # --- Pre-flight Checks & Auto-configuration ---
-
-# Function to automatically determine and set the Firebase Site ID in the .tfvars file
-configure_firebase_site_id() {
-  info "Checking Firebase Hosting Site configuration..."
-  local tfvars_file=$1
-  local project_id=$2
-
-  # Check if the site ID is still the placeholder value
-  if grep -q "YOUR_FIREBASE_SITE_ID" "$tfvars_file"; then
-    warn "Placeholder 'YOUR_FIREBASE_SITE_ID' found in ${tfvars_file}."
-    info "Querying Firebase for an existing default hosting site..."
-
-    # Query Firebase for sites and find the one marked as default (or the first one if none are default)
-    local default_site_name
-    # The `jq` filter first looks for a site with type "DEFAULT_SITE". If not found, it takes the first site in the list.
-    # The result is the full resource name, e.g., "projects/my-proj/sites/my-site-id".
-    default_site_name=$(firebase hosting:sites:list --project "$project_id" --json | jq -r 'first(.result.sites[] | select(.type == "DEFAULT_SITE") | .name) // first(.result.sites[].name) // ""')
-
-    # If a site was found, extract the site ID from the name. Otherwise, fall back to the project ID.
-    local site_id_to_use=$project_id
-    [ -n "$default_site_name" ] && site_id_to_use=$(basename "$default_site_name")
-
-    info "Setting 'firebase_site_id' to '${C_YELLOW}${site_id_to_use}${C_RESET}' in ${tfvars_file}."
-    sed -i.bak "s/YOUR_FIREBASE_SITE_ID/${site_id_to_use}/" "$tfvars_file" && rm "${tfvars_file}.bak"
-  fi
-}
-
 
 # A reusable function to prompt for a value and update the .tfvars file
 prompt_and_update_tfvar() {
@@ -430,19 +395,13 @@ configure_environment() {
         sed -i.bak "s|^[#[:space:]]*backend_service_name[[:space:]]*=.*|backend_service_name = \"$BE_SERVICE_NAME\"|g" "$TFVARS_FILE_PATH"
         sed -i.bak "s|^[#[:space:]]*frontend_service_name[[:space:]]*=.*|frontend_service_name = \"$FE_SERVICE_NAME\"|g" "$TFVARS_FILE_PATH"
 
-        # --- Discover and Set Firebase Site ID ---
-        # This function will query Firebase for the default site and update the
-        # 'YOUR_FIREBASE_SITE_ID' placeholder in the .tfvars file.
-        configure_firebase_site_id "$TFVARS_FILE_PATH" "$GCP_PROJECT_ID"
-        # After discovery, read the final value into a global variable for later use
-        AUTO_FIREBASE_SITE_ID=$(grep 'firebase_site_id' "$TFVARS_FILE_PATH" | awk -F'"' '{print $2}')
-
-        # Prompt only for the branch name
+        # Prompt for custom domain and GitHub branch
         export TFVARS_FILE=$TFVARS_FILE_PATH # Set context for helper function
-        prompt "Please provide the following value:"
+        prompt "Please provide the following values:"
+        prompt_and_update_tfvar "Custom Domain for Load Balancer" "studio.yourdomain.com" "custom_domain" "CUSTOM_DOMAIN"
         prompt_and_update_tfvar "GitHub Branch to deploy from" "$DEFAULT_BRANCH_NAME" "github_branch_name" "GITHUB_BRANCH"
 
-        write_state "ENV_NAME" "$ENV_NAME"; write_state "BE_SERVICE_NAME" "$BE_SERVICE_NAME"; write_state "FE_SERVICE_NAME" "$FE_SERVICE_NAME"; write_state "GITHUB_BRANCH" "$GITHUB_BRANCH"
+        write_state "ENV_NAME" "$ENV_NAME"; write_state "BE_SERVICE_NAME" "$BE_SERVICE_NAME"; write_state "FE_SERVICE_NAME" "$FE_SERVICE_NAME"; write_state "GITHUB_BRANCH" "$GITHUB_BRANCH"; write_state "CUSTOM_DOMAIN" "$CUSTOM_DOMAIN"
     else info "Environment directory '$ENV_DIR' already configured."; fi
     success "Configuration files for '$ENV_NAME' environment are ready."
 }
@@ -472,7 +431,7 @@ handle_manual_steps() {
     rm -f "$TFVARS_FILE_PATH.bak"
 
     # --- Automate .tfvars placeholder replacement ---
-    info "\nConfiguring OAuth Client ID and Project ID in .tfvars file..."
+    info "\nConfiguring OAuth Client ID, Client Secret and Project ID in .tfvars file..."
     if [ -z "$AUTO_OAUTH_CLIENT_ID" ]; then
         warn "The OAuth Client ID is required for the .tfvars file."
         echo "1. Open this URL in your browser to find your OAuth Client ID:"
@@ -483,82 +442,24 @@ handle_manual_steps() {
         if [ -z "$AUTO_OAUTH_CLIENT_ID" ]; then fail "OAuth Client ID is required to proceed."; fi
     fi
 
+    # Prompt for OAuth Client Secret
+    prompt "Paste your OAuth Client Secret here:"
+    read -s -p "   Client Secret: " AUTO_OAUTH_CLIENT_SECRET < /dev/tty; echo
+    if [ -z "$AUTO_OAUTH_CLIENT_SECRET" ]; then fail "OAuth Client Secret is required to proceed."; fi
+
+    # Prompt for Keycloak Client Secret
+    prompt "Paste your Keycloak Client Secret here (e.g., 'kwp'):"
+    read -p "   Keycloak Client Secret: " AUTO_KEYCLOAK_CLIENT_SECRET < /dev/tty
+    if [ -z "$AUTO_KEYCLOAK_CLIENT_SECRET" ]; then fail "Keycloak Client Secret is required to proceed."; fi
+
     sed -i.bak "s|YOUR_OAUTH_WEB_CLIENT_ID_HERE|$AUTO_OAUTH_CLIENT_ID|g" "$TFVARS_FILE_PATH"
+    sed -i.bak "s|YOUR_OAUTH_CLIENT_SECRET_HERE|$AUTO_OAUTH_CLIENT_SECRET|g" "$TFVARS_FILE_PATH"
+    sed -i.bak "s|YOUR_KEYCLOAK_CLIENT_SECRET_HERE|$AUTO_KEYCLOAK_CLIENT_SECRET|g" "$TFVARS_FILE_PATH"
     sed -i.bak "s|YOUR_GCP_PROJECT_ID|$GCP_PROJECT_ID|g" "$TFVARS_FILE_PATH"
     success "Replaced placeholders in $TFVARS_FILE_PATH."
 }
 
-setup_firebase_app() {
-    step 7 "Automating Firebase Web App Configuration"; cd "$REPO_ROOT"
-
-    info "Checking for existing Firebase web app named '$FE_SERVICE_NAME'...";
-    if ! firebase apps:list --project="$GCP_PROJECT_ID" | grep -q "$FE_SERVICE_NAME"; then
-        info "No existing app found. Creating a new Firebase web app...";
-		firebase apps:create WEB "$FE_SERVICE_NAME" --project="$GCP_PROJECT_ID"
-    else info "Firebase web app '$FE_SERVICE_NAME' already exists."; fi
-
-    info "Fetching Firebase SDK configuration to store in memory...";
-	local APP_ID=$(firebase apps:list --project="$GCP_PROJECT_ID" --json | jq -r --arg name "$FE_SERVICE_NAME" '.result[] | select(.displayName == $name) | .appId')
-    local SDK_CONFIG_JSON=$(firebase apps:sdkconfig WEB "$APP_ID" --project="$GCP_PROJECT_ID" --json)
-
-    AUTO_FIREBASE_API_KEY=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.apiKey // empty')
-    AUTO_FIREBASE_AUTH_DOMAIN=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.authDomain // empty')
-    AUTO_FIREBASE_PROJECT_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.projectId // empty')
-    AUTO_FIREBASE_STORAGE_BUCKET=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.storageBucket // empty')
-    AUTO_FIREBASE_MESSAGING_SENDER_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.messagingSenderId // empty')
-    AUTO_FIREBASE_APP_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.appId // empty')
-    AUTO_FIREBASE_MEASUREMENT_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.measurementId // empty')
-
-    if [ -z "$AUTO_FIREBASE_API_KEY" ]; then fail "Could not automatically fetch Firebase API Key. Please check your Firebase setup."; fi
-    success "Firebase secrets have been fetched and will be populated automatically after Terraform runs."
-}
-
-populate_oauth_secrets() {
-    step 8 "Automating OAuth Secret Population"
-    cd "$REPO_ROOT"
-    info "Looking for the OAuth 2.0 Web Client ID using the Firebase Management API..."
-
-    local AUTH_TOKEN=$(gcloud auth print-access-token)
-    local APP_ID=$(firebase apps:list --project="$GCP_PROJECT_ID" --json | jq -r --arg name "$FE_SERVICE_NAME" '.result[] | select(.displayName == $name) | .appId')
-
-    if [ -z "$APP_ID" ]; then
-        warn "Could not find Firebase App ID for '$FE_SERVICE_NAME'. Skipping OAuth secret population."
-        return
-    fi
-
-    # Use the Firebase Management API to get the auth config, which includes the client ID.
-    local API_RESPONSE=$(curl -s -X GET \
-        -H "Authorization: Bearer $AUTH_TOKEN" \
-        "https://firebase.googleapis.com/v1beta1/projects/$GCP_PROJECT_ID/webApps/$APP_ID/config")
-
-    # The client ID is the one NOT associated with the API key.
-    AUTO_OAUTH_CLIENT_ID=$(echo "$API_RESPONSE" | jq -r '.oauthClientId')
-
-    if [ -z "$AUTO_OAUTH_CLIENT_ID" ] || [ "$AUTO_OAUTH_CLIENT_ID" == "null" ]; then
-        warn "Could not automatically find the OAuth Client ID via API."
-        info "Please perform the following manual steps:"
-        echo "1. Open this URL in your browser to find your OAuth Client ID:"
-        echo -e "   ${C_YELLOW}https://console.cloud.google.com/apis/credentials?project=${GCP_PROJECT_ID}${C_RESET}"
-        echo "2. Find the OAuth 2.0 Client ID of type 'Web application'."
-        prompt "Paste the OAuth Client ID here:"
-        read -p "   Client ID: " AUTO_OAUTH_CLIENT_ID < /dev/tty
-        if [ -z "$AUTO_OAUTH_CLIENT_ID" ]; then
-            fail "OAuth Client ID is required to proceed. Please restart the script."
-        fi
-    else
-        info "Found OAuth Client ID via Firebase API."
-    fi
-
-    info "Populating secrets with Client ID: ${C_YELLOW}${AUTO_OAUTH_CLIENT_ID}${C_RESET}"
-    echo -n "$AUTO_OAUTH_CLIENT_ID" | gcloud secrets versions add GOOGLE_CLIENT_ID --data-file="-" --project="$GCP_PROJECT_ID" --quiet
-    echo -n "$AUTO_OAUTH_CLIENT_ID" | gcloud secrets versions add GOOGLE_TOKEN_AUDIENCE --data-file="-" --project="$GCP_PROJECT_ID" --quiet
-    success "Secrets 'GOOGLE_CLIENT_ID' and 'GOOGLE_TOKEN_AUDIENCE' have been populated."
-
-    info "Updating audiences in $TFVARS_FILE_PATH..."
-    sed -i.bak "s|your-custom-audience.apps.googleusercontent.com|$AUTO_OAUTH_CLIENT_ID|g" "$TFVARS_FILE_PATH"
-    rm -f "$TFVARS_FILE_PATH.bak"
-    success "Audiences updated in .tfvars file."
-}
+# Functions setup_firebase_app and populate_oauth_secrets removed since Firebase Auth client SDK is no longer used.
 
 setup_db_secrets() {
     step 9 "Configuring Database Secrets" # Renumber subsequent steps
@@ -609,78 +510,24 @@ update_oauth_client() {
     info "Ensuring OAuth Client has all required origins and redirect URIs..."; local PROJECT_DOMAIN_BASE=$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectId)')
     local FIREBASEAPP_ORIGIN="https://${PROJECT_DOMAIN_BASE}.firebaseapp.com"; local WEBAPP_ORIGIN="https://${PROJECT_DOMAIN_BASE}.web.app"
     local FIREBASEAPP_REDIRECT_URI="${FIREBASEAPP_ORIGIN}/__/auth/handler"; local WEBAPP_REDIRECT_URI="${WEBAPP_ORIGIN}/__/auth/handler"
-    gcloud iap oauth-clients update "$OAUTH_CLIENT_FULL_NAME" --add-javascript-origins="$FIREBASEAPP_ORIGIN" --add-javascript-origins="$WEBAPP_ORIGIN" --add-redirect-uris="$FIREBASEAPP_REDIRECT_URI" --add-redirect-uris="$WEBAPP_REDIRECT_URI" --project="$GCP_PROJECT_ID" --quiet
+    
+    # Read custom domain
+    local CUSTOM_DOMAIN=$(grep 'custom_domain' "$TFVARS_FILE_PATH" | awk -F'"' '{print $2}')
+    local CUSTOM_ORIGIN="https://${CUSTOM_DOMAIN}"
+    local CUSTOM_REDIRECT="${CUSTOM_ORIGIN}/__/auth/handler"
+    
+    gcloud iap oauth-clients update "$OAUTH_CLIENT_FULL_NAME" \
+        --add-javascript-origins="$FIREBASEAPP_ORIGIN" \
+        --add-javascript-origins="$WEBAPP_ORIGIN" \
+        --add-javascript-origins="$CUSTOM_ORIGIN" \
+        --add-redirect-uris="$FIREBASEAPP_REDIRECT_URI" \
+        --add-redirect-uris="$WEBAPP_REDIRECT_URI" \
+        --add-redirect-uris="$CUSTOM_REDIRECT" \
+        --project="$GCP_PROJECT_ID" --quiet
     success "OAuth Client URIs configured automatically."
 }
 
-update_secrets() {
-    step 12 "Updating Remaining Secrets"; info "Navigating to $REPO_ROOT/infra/environments/$ENV_NAME..."; cd "$REPO_ROOT/infra/environments/$ENV_NAME"
-    info "Populating values in Secret Manager..."; local TERRAFORM_OUTPUTS=$(terraform output -json)
-    local FRONTEND_SECRETS=$(echo "$TERRAFORM_OUTPUTS" | jq -r .frontend_secrets.value[]); local BACKEND_SECRETS=$(echo "$TERRAFORM_OUTPUTS" | jq -r .backend_secrets.value[])
-    local ALL_SECRETS=$(echo "${FRONTEND_SECRETS} ${BACKEND_SECRETS}" | tr ' ' '\n' | sort -u | grep .)
-    if [ -z "$ALL_SECRETS" ]; then success "No secrets defined in Terraform outputs. Nothing to do."; return; fi
-
-    # --- Double-check for Firebase config if variables are not set ---
-    # This handles cases where the script is resumed after step 7
-    if [ -z "$AUTO_FIREBASE_API_KEY" ]; then
-        info "Auto-discovered Firebase variables not set. Re-running discovery..."
-        local FE_APP_NAME=$(grep 'frontend_service_name' "$TFVARS_FILE_PATH" | awk -F'"' '{print $2}')
-        if [ -z "$FE_APP_NAME" ]; then
-            warn "Could not determine frontend service name from .tfvars. Cannot auto-discover Firebase secrets."
-        else
-            local APP_ID=$(firebase apps:list --project="$GCP_PROJECT_ID" --json | jq -r --arg name "$FE_SERVICE_NAME" '.result[] | select(.displayName == $name) | .appId')
-            if [ -n "$APP_ID" ]; then
-                local SDK_CONFIG_JSON=$(firebase apps:sdkconfig WEB "$APP_ID" --project="$GCP_PROJECT_ID" --json)
-				AUTO_FIREBASE_API_KEY=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.apiKey // empty')
-                # ... (re-populate all other AUTO_... variables)
-				AUTO_FIREBASE_AUTH_DOMAIN=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.authDomain // empty')
-				AUTO_FIREBASE_PROJECT_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.projectId // empty')
-				AUTO_FIREBASE_STORAGE_BUCKET=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.storageBucket // empty')
-				AUTO_FIREBASE_MESSAGING_SENDER_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.messagingSenderId // empty')
-				AUTO_FIREBASE_APP_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.appId // empty')
-				AUTO_FIREBASE_MEASUREMENT_ID=$(echo "$SDK_CONFIG_JSON" | jq -r '.result.sdkConfig.measurementId // empty')
-                success "Successfully re-discovered Firebase configuration."
-            fi
-        fi
-    fi
-
-    for SECRET_NAME in $ALL_SECRETS; do
-        info "Processing secret: ${C_YELLOW}${SECRET_NAME}${C_RESET}"
-
-        SECRET_VALUE=""
-        AUTO_DISCOVERED=false
-
-        # Check if we have an auto-discovered value for the current secret
-        case $SECRET_NAME in
-            "FIREBASE_API_KEY")               SECRET_VALUE=$AUTO_FIREBASE_API_KEY; AUTO_DISCOVERED=true ;;
-            "FIREBASE_AUTH_DOMAIN")           SECRET_VALUE=$AUTO_FIREBASE_AUTH_DOMAIN; AUTO_DISCOVERED=true ;;
-            "FIREBASE_PROJECT_ID")            SECRET_VALUE=$AUTO_FIREBASE_PROJECT_ID; AUTO_DISCOVERED=true ;;
-            "FIREBASE_STORAGE_BUCKET")        SECRET_VALUE=$AUTO_FIREBASE_STORAGE_BUCKET; AUTO_DISCOVERED=true ;;
-            "FIREBASE_MESSAGING_SENDER_ID")   SECRET_VALUE=$AUTO_FIREBASE_MESSAGING_SENDER_ID; AUTO_DISCOVERED=true ;;
-            "FIREBASE_APP_ID")                SECRET_VALUE=$AUTO_FIREBASE_APP_ID; AUTO_DISCOVERED=true ;;
-            "FIREBASE_MEASUREMENT_ID")        SECRET_VALUE=$AUTO_FIREBASE_MEASUREMENT_ID; AUTO_DISCOVERED=true ;;
-            # GOOGLE_CLIENT_ID is handled by populate_oauth_secrets, so we skip it here
-            "GOOGLE_CLIENT_ID")               info "  Value is handled by the OAuth population step. Skipping."; continue ;;
-            "GOOGLE_TOKEN_AUDIENCE")          info "  Value is handled by the OAuth population step. Skipping."; continue ;;
-        esac
-
-        if [ "$AUTO_DISCOVERED" = true ] && [ -n "$SECRET_VALUE" ]; then
-            info "  Value was auto-detected from Firebase. Populating automatically."
-            echo -n "$SECRET_VALUE" | gcloud secrets versions add "$SECRET_NAME" --data-file="-" --project="$GCP_PROJECT_ID" --quiet
-            success "  Successfully added new version for ${SECRET_NAME}."
-
-        else
-            # This fallback is now only for secrets that are not auto-discovered
-            warn "  This secret requires manual input."
-            echo -e "${C_CYAN}  It is safe to paste your secret. The value is read securely, not displayed, and not stored in history.${C_RESET}"
-            read -s -p "  Enter new value: " SECRET_VALUE < /dev/tty; echo
-
-            if [ -z "$SECRET_VALUE" ]; then warn "  No value provided. Skipping ${SECRET_NAME}."; continue; fi
-            echo -n "$SECRET_VALUE" | gcloud secrets versions add "$SECRET_NAME" --data-file="-" --project="$GCP_PROJECT_ID" --quiet
-            success "  Successfully added new version for ${SECRET_NAME}."
-        fi
-    done; success "All secrets have been populated."
-}
+# Function update_secrets removed since Secret Manager secrets are no longer required for client-side Firebase configurations.
 
 seed_data() {
     step 13 "Seeding Initial Data (Workspaces, Templates, Assets)"
@@ -787,12 +634,9 @@ main() {
         "setup_project" "setup_repo"
         "configure_environment"
         "handle_manual_steps"
-        "setup_firebase_app"
         "setup_db_secrets"
         "run_terraform"
-        "populate_oauth_secrets"
         "update_oauth_client"
-        "update_secrets"
         "seed_data"
         "trigger_builds" 
     )
@@ -812,16 +656,8 @@ main() {
     cd "$REPO_ROOT/infra/environments/$ENV_NAME"
 
     # Try to get the frontend URL from terraform output, but handle the error
-    FRONTEND_URL=$(terraform output -raw frontend_service_url 2>/dev/null || echo "")
-    if [ -z "$FRONTEND_URL" ]; then
-        warn "Could not find 'frontend_service_url' in Terraform outputs. Deducing from project ID."
-        # Construct the default Firebase Hosting URL using the discovered site ID
-        if [ -n "$AUTO_FIREBASE_SITE_ID" ]; then
-            FRONTEND_URL="https://${AUTO_FIREBASE_SITE_ID}.web.app"
-        else
-            FRONTEND_URL="https://$(echo "$GCP_PROJECT_ID" | tr '[:upper:]' '[:lower:]').web.app"
-        fi
-    fi
+    # Construct the custom Load Balancer domain URL
+    FRONTEND_URL="https://${CUSTOM_DOMAIN}"
 
     # Get the backend URL
     BACKEND_URL=$(terraform output -raw backend_service_url 2>/dev/null || echo "")

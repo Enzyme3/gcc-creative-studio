@@ -49,6 +49,7 @@ class ConfigService(BaseSettings):
 
     # --- Google Identity ---
     GOOGLE_TOKEN_AUDIENCE: str = ""
+    IAP_AUDIENCE: str = ""
     ALLOWED_ORGS_STR: str = Field(
         default="", alias="IDENTITY_PLATFORM_ALLOWED_ORGS"
     )

@@ -32,10 +32,11 @@ resource "google_artifact_registry_repository" "repo" {
 }
 
 resource "google_cloud_run_v2_service" "this" {
-  name             = var.service_name
-  location         = var.gcp_region
-  custom_audiences = var.custom_audiences
+  name                = var.service_name
+  location            = var.gcp_region
+  custom_audiences    = var.custom_audiences
   deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
   template {
     service_account = google_service_account.run_sa.email
@@ -224,4 +225,12 @@ resource "google_service_account_iam_member" "run_sa_act_as_self" {
   service_account_id = google_service_account.run_sa.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.run_sa.email}"
+}
+
+# --- Allow Load Balancer to Invoke Backend ---
+resource "google_cloud_run_v2_service_iam_member" "public_access" {
+  name     = google_cloud_run_v2_service.this.name
+  location = google_cloud_run_v2_service.this.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }

@@ -61,7 +61,12 @@ module "creative_studio_platform" {
 
   frontend_secrets       = var.frontend_secrets
   backend_secrets        = var.backend_secrets
-  fe_build_substitutions = var.fe_build_substitutions
+  fe_build_substitutions  = var.fe_build_substitutions
+  custom_domain           = var.custom_domain
+  iap_oauth_client_id     = var.iap_oauth_client_id
+  iap_oauth_client_secret = var.iap_oauth_client_secret
+  keycloak_service_name   = var.keycloak_service_name
+  keycloak_client_secret  = var.keycloak_client_secret
 
   depends_on = [ google_project_service.apis ]
 }

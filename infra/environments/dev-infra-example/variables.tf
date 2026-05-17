@@ -125,3 +125,28 @@ variable "apis_to_enable" {
     "run.googleapis.com"               # Required for Cloud Run
   ]
 }
+
+variable "custom_domain" {
+  type        = string
+  description = "The custom domain name for the HTTPS Load Balancer."
+}
+
+variable "iap_oauth_client_id" {
+  type        = string
+  description = "OAuth2 Client ID for Identity-Aware Proxy."
+}
+
+variable "iap_oauth_client_secret" {
+  type        = string
+  description = "OAuth2 Client Secret for Identity-Aware Proxy."
+}
+
+variable "keycloak_service_name" {
+  type        = string
+  description = "The name of the Keycloak service."
+}
+
+variable "keycloak_client_secret" {
+  type        = string
+  description = "The OAuth client secret of Keycloak."
+}

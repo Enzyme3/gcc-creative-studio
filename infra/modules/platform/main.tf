@@ -53,13 +53,15 @@ locals {
   region_code  = join("", [for s in split("-", var.gcp_region) : substr(s, 0, 1)])
   backend_url = "https://${var.backend_service_name}-${data.google_project.project.number}.${var.gcp_region}.run.app"
 
-  frontend_url = "https://${var.firebase_site_id}.web.app" # Predictable Firebase URL
+  frontend_url = "https://${var.custom_domain}"
 
   backend_env_vars = merge(
     lookup(var.be_env_vars, "common", {}),
     lookup(var.be_env_vars, var.environment, {}),
     {
       "CORS_ORIGINS"           = "[\"${local.frontend_url}\"]"
+      "FRONTEND_URL"           = local.frontend_url
+      "IAP_AUDIENCE"           = "/projects/${data.google_project.project.number}/global/backendServices/${module.load_balancer.backend_service_id}"
       "GENMEDIA_BUCKET"        = google_storage_bucket.genmedia.name
       "SIGNING_SA_EMAIL"       = google_service_account.bucket_reader_sa.email
       "BACKEND_URL"            = local.backend_url
@@ -98,7 +100,7 @@ module "postgresql" {
 
 # --- Service Module Calls ---
 module "backend_service" {
-  source = "../cloud-run-service"
+  source = "../cloud-run-service-backend"
 
   gcp_project_id        = var.gcp_project_id
   gcp_region            = var.gcp_region
@@ -112,12 +114,12 @@ module "backend_service" {
   cloudbuild_yaml_path  = "backend/cloudbuild.yaml"
   included_files_glob   = ["backend/**"]
   container_env_vars    = local.backend_env_vars
-  runtime_secrets = var.backend_runtime_secrets
+  runtime_secrets       = var.backend_runtime_secrets
   custom_audiences      = var.backend_custom_audiences
   scaling_min_instances = 1
-  source_repository_id = google_cloudbuildv2_repository.source_repo.id
-  cpu = var.be_cpu
-  memory = var.be_memory
+  source_repository_id  = google_cloudbuildv2_repository.source_repo.id
+  cpu                   = var.be_cpu
+  memory                = var.be_memory
   build_substitutions   = merge(var.be_build_substitutions,
     {
       _REGION = var.gcp_region
@@ -134,35 +136,36 @@ module "backend_service" {
   db_secret_id              = "creative-studio-db-password"
 }
 
-resource "google_firebase_project" "default" {
-  provider = google-beta
-  project = var.gcp_project_id
-}
-
 module "frontend_service" {
-  source = "../firebase-hosting-service"
+  source = "../cloud-run-service-frontend"
 
-  source_repository_id = google_cloudbuildv2_repository.source_repo.id
-  gcp_project_id       = var.gcp_project_id
+  gcp_project_id        = var.gcp_project_id
   gcp_region            = var.gcp_region
-  firebase_project_id  = google_firebase_project.default.project
-  service_name         = var.gcp_project_id
-  environment          = var.environment
-  resource_prefix      = "cs-fe"
-  github_branch_name   = var.github_branch_name
-  cloudbuild_yaml_path = "frontend/cloudbuild-deploy.yaml"
-  included_files_glob  = ["frontend/**"]
-  firebase_site_id     = var.firebase_site_id != "" ? var.firebase_site_id : var.gcp_project_id
+  environment           = var.environment
+  service_name          = var.frontend_service_name
+  resource_prefix       = "cs-fe"
+  github_conn_name      = var.github_conn_name
+  github_repo_owner     = var.github_repo_owner
+  github_repo_name      = var.github_repo_name
+  github_branch_name    = var.github_branch_name
+  cloudbuild_yaml_path  = "frontend/cloudbuild-deploy.yaml"
+  included_files_glob   = ["frontend/**"]
+  container_env_vars    = {}
+  runtime_secrets       = {}
+  custom_audiences      = var.frontend_custom_audiences
+  scaling_min_instances = 0
+  scaling_max_instances = 100
+  source_repository_id  = google_cloudbuildv2_repository.source_repo.id
+  cpu                   = var.fe_cpu
+  memory                = var.fe_memory
 
   build_substitutions = merge(
     var.fe_build_substitutions,
     {
       # This block should ONLY contain non-secret, underscore-prefixed values
-      _BACKEND_URL         = local.frontend_url # The frontend will redirect the api calls to the backend
-      _FE_SERVICE_NAME     = var.frontend_service_name
-      _BACKEND_SERVICE_ID  = var.backend_service_name
-      _FIREBASE_PROJECT_ID = var.gcp_project_id
-      _FIREBASE_SITE_ID    = var.firebase_site_id != "" ? var.firebase_site_id : var.gcp_project_id
+      _BACKEND_URL        = local.backend_url
+      _FE_SERVICE_NAME    = var.frontend_service_name
+      _BACKEND_SERVICE_ID = var.backend_service_name
     }
   )
 }
@@ -183,15 +186,39 @@ module "backend_secrets" {
   accessor_sa_email = module.backend_service.trigger_sa_email
 }
 
-# --- Cross-Module Permissions ---
+module "load_balancer" {
+  source = "../gclb"
 
-# Grant the Frontend's deploy trigger (which runs `firebase deploy`)
-# permission to "get" the Backend's Cloud Run service to validate the rewrite rule.
-resource "google_cloud_run_v2_service_iam_member" "fe_trigger_can_view_backend" {
-  provider = google-beta
-  project  = var.gcp_project_id
-  name     = module.backend_service.service_name
-  location = module.backend_service.location
-  role     = "roles/run.viewer"
-  member   = "serviceAccount:${module.frontend_service.trigger_sa_email}"
+  gcp_project_id           = var.gcp_project_id
+  gcp_region               = var.gcp_region
+  environment              = var.environment
+  resource_prefix          = "cs-lb"
+  custom_domain            = var.custom_domain
+  frontend_service_name    = var.frontend_service_name
+  backend_service_name     = var.backend_service_name
+  iap_oauth2_client_id     = var.iap_oauth_client_id
+  iap_oauth2_client_secret = var.iap_oauth_client_secret
+}
+
+module "keycloak_service" {
+  source = "../cloud-run-service-keycloak"
+
+  gcp_project_id                     = var.gcp_project_id
+  gcp_region                         = var.gcp_region
+  environment                        = var.environment
+  service_name                       = var.keycloak_service_name
+  resource_prefix                    = "cs-kc"
+  cloud_sql_instance_connection_name = module.postgresql.connection_name
+  db_user                            = "studio_user"
+  db_secret_id                       = "creative-studio-db-password"
+}
+
+resource "google_identity_platform_oauth_idp_config" "keycloak" {
+  name          = "oidc.keycloak"
+  display_name  = "Keycloak"
+  enabled       = true
+  project       = var.gcp_project_id
+  client_id     = "creative-studio"
+  client_secret = var.keycloak_client_secret
+  issuer        = "https://${module.keycloak_service.service_url}/realms/creative-studio"
 }

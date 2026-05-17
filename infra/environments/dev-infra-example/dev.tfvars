@@ -3,9 +3,13 @@ gcp_region     = "us-central1"
 environment    = "development"
 
 # --- Service Names ---
-backend_service_name  = "cstudio-backend-dev"
-frontend_service_name = "cstudio-frontend-dev" # This is the Cloud Run service name
-firebase_site_id      = "YOUR_FIREBASE_SITE_ID" # (Optional) Custom Firebase Hosting Site ID, defaults to the gcp_project_id
+backend_service_name         = "cstudio-backend-dev"
+frontend_service_name        = "cstudio-frontend-dev" # This is the Cloud Run service name
+custom_domain           = "studio.yourdomain.com"
+iap_oauth_client_id     = "YOUR_OAUTH_WEB_CLIENT_ID_HERE"
+iap_oauth_client_secret = "YOUR_OAUTH_CLIENT_SECRET_HERE"
+keycloak_service_name   = "cstudio-keycloak-dev"
+keycloak_client_secret  = "YOUR_KEYCLOAK_CLIENT_SECRET_HERE"
 
 # --- GitHub Repo Details ---
 github_conn_name   = "gh-repo-owner-con"

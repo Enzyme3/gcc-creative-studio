@@ -51,3 +51,9 @@ resource "google_sql_user" "default" {
   password = var.db_password
   project  = var.project_id
 }
+
+resource "google_sql_database" "keycloak" {
+  name     = "keycloak"
+  instance = google_sql_database_instance.default.name
+  project  = var.project_id
+}

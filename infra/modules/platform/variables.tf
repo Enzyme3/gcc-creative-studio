@@ -87,3 +87,28 @@ variable "backend_runtime_secrets" {
   description = "Secrets to mount in the backend container at runtime."
   default     = {}
 }
+
+variable "custom_domain" {
+  type        = string
+  description = "The custom domain name for the HTTPS Load Balancer."
+}
+
+variable "iap_oauth_client_id" {
+  type        = string
+  description = "OAuth2 Client ID for Identity-Aware Proxy."
+}
+
+variable "iap_oauth_client_secret" {
+  type        = string
+  description = "OAuth2 Client Secret for Identity-Aware Proxy."
+}
+
+variable "keycloak_service_name" {
+  type        = string
+  description = "The name of the Keycloak service."
+}
+
+variable "keycloak_client_secret" {
+  type        = string
+  description = "The OAuth client secret of Keycloak."
+}

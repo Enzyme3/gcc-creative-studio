@@ -12,24 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG BUILD_CMD=build-dev
+output "service_url" {
+  description = "The public URL of the deployed Keycloak service."
+  value       = google_cloud_run_v2_service.this.uri
+}
 
-FROM node:20-alpine AS builder
-
-ARG BUILD_CMD
-
-WORKDIR /app
-COPY . /app/
-
-RUN npm ci
-RUN npm run ${BUILD_CMD}
-
-FROM nginx:alpine
-COPY --from=builder /app/dist/creative-studio/browser /usr/share/nginx/html
-# It's best practice to replace the default config file.
-COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
-
-# Give the nginx user ownership of the app files
-RUN chown -R nginx:nginx /usr/share/nginx/html
-
-EXPOSE 8080
+output "service_name" {
+  description = "The name of the Keycloak service."
+  value       = google_cloud_run_v2_service.this.name
+}

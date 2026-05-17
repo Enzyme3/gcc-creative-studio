@@ -17,11 +17,9 @@
 import asyncio
 import logging
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from firebase_admin import auth
+from fastapi import Depends, HTTPException, status, Header
 
-# --- Google Auth for Identity Platform ---
+# --- Google Auth for Identity Platform / IAP ---
 from google.auth.transport import requests as google_auth_requests
 from google.oauth2 import id_token
 
@@ -29,64 +27,65 @@ from src.config.config_service import config_service
 from src.users.user_model import UserModel, UserRoleEnum
 from src.users.user_service import UserService
 
-# Initialize the service once to be used by dependencies.
-# user_service = UserService()  <-- REMOVED
-
-# This scheme will require the client to send a token in the Authorization
-# header. It tells FastAPI how to find the token but doesn't validate it
-# itself.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-
 logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    x_goog_iap_jwt_assertion: str = Header(None),
     user_service: UserService = Depends(UserService),
 ) -> UserModel:
-    """Dependency that handles the entire authentication and user
-    provisioning flow.
+    """Dependency that handles the entire authentication and user provisioning flow.
 
-    1. Verifies the Firebase ID token.
-    2. Extracts user information (id, email).
-    3. Checks if a user document exists in Firestore.
-    4. If the user is new, creates their document ("Just-In-Time Provisioning").
-    5. Returns a Pydantic model with the user's data.
+    1. For local environment, bypasses authentication and returns a mocked Local Admin profile.
+    2. For production/development, verifies the Google-issued IAP JWT token from the header.
+    3. Extracts user information (email, name, picture).
+    4. Just-In-Time (JIT) provisions the user profile in Postgres if they are new.
     """
     try:
-        decoded_token = {}
+        email = None
+        name = None
+        picture = ""
+        token_info_hd = None
+
         if config_service.ENVIRONMENT == "local":
-            # --- Local: Use Firebase Auth ---
-            # Verifies the token using the standard Firebase Admin SDK method.
-            logger.info("Verifying token using Firebase Admin SDK...")
-            decoded_token = await asyncio.to_thread(auth.verify_id_token, token)
+            # --- Local Bypass: Return Mock User Profile ---
+            logger.info(
+                "Bypassing authentication for local environment. Returning Mock User Profile."
+            )
+            email = "local-admin@example.com"
+            name = "Local Admin"
+            picture = ""
         else:
-            # --- Development/Production: Use Google Identity Platform
-            # (OIDC) ---
-            # Verifies the Google-issued OIDC ID token. The audience must be the
-            # OAuth 2.0 client ID of the Identity Platform-protected resource.
-            google_token_audience = config_service.GOOGLE_TOKEN_AUDIENCE
+            # --- Development/Production: Validate Google IAP JWT Token ---
+            if not x_goog_iap_jwt_assertion:
+                logger.error("Missing X-Goog-IAP-JWT-Assertion header.")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication token is missing.",
+                )
+
+            logger.info("Verifying IAP JWT Token assertion...")
+            expected_audience = config_service.IAP_AUDIENCE
             decoded_token = await asyncio.to_thread(
-                id_token.verify_oauth2_token,
-                token,
+                id_token.verify_iap_token,
+                x_goog_iap_jwt_assertion,
                 google_auth_requests.Request(),
-                audience=google_token_audience,
+                audience=expected_audience,
             )
 
-        email = decoded_token.get("email")
-        name = decoded_token.get("name")
-        picture = decoded_token.get("picture", "")
-        token_info_hd = decoded_token.get("hd")
+            email = decoded_token.get("email")
+            name = decoded_token.get(
+                "name", email.split("@")[0] if email else "IAP User"
+            )
+            picture = decoded_token.get("picture", "")
+            token_info_hd = (
+                email.split("@")[1] if email and "@" in email else None
+            )
 
-        # Restrict by particular organizations if it's a closed environment
         if not email:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    "Forbidden: User identity could not be confirmed from "
-                    "token."
-                ),
+                detail="Forbidden: User identity could not be confirmed from token.",
             )
 
         # If ALLOWED_ORGS is configured, check the user's organization.
@@ -97,10 +96,7 @@ async def get_current_user(
             ):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=(
-                        f"User from '{token_info_hd}' is not part of an "
-                        "allowed organization."
-                    ),
+                    detail=f"User from '{token_info_hd}' is not part of an allowed organization.",
                 )
 
         # Just-In-Time (JIT) User Provisioning:
@@ -127,35 +123,13 @@ async def get_current_user(
 
         return user_doc
 
-    except auth.ExpiredIdTokenError as exc:
-        logger.error(
-            "[get_current_user - auth.ExpiredIdTokenError] for %s", email
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication token has expired.",
-        ) from exc
-    except auth.InvalidIdTokenError as e:
-        logger.error(
-            "[get_current_user - auth.InvalidIdTokenError] for %s: %s",
-            email,
-            e,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid authentication token: {e}",
-        ) from e
     except HTTPException as e:
         logger.error("[get_current_user - Exception]: %s", e)
         raise e
     except Exception as e:
         logger.error("[get_current_user - Exception]: %s", e)
         raise HTTPException(
-            status_code=getattr(
-                e,
-                "status_code",
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-            ),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred during authentication: {e}",
         ) from e
 
