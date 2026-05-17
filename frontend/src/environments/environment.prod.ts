@@ -34,6 +34,6 @@ export const environment = {
   oidc: {
     authority: 'https://keycloak-373927882219.us-central1.run.app/realms/creative-studio',
     clientId: 'gcc-creative-studio-client',
-    redirectUri: 'https://kwpark-gcc-creative-studio.firebaseapp.com/__/auth/handler',
+    redirectUri: 'https://kwpark-gcc-creative-studio.web.app/__/auth/handler',
   }
 };
