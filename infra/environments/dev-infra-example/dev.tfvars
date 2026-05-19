@@ -1,11 +1,11 @@
-gcp_project_id = "YOUR_GCP_PROJECT_ID"
+gcp_project_id = "kwpark-gcc-cs-2"
 gcp_region     = "us-central1"
 environment    = "development"
 
 # --- Service Names ---
-backend_service_name  = "cstudio-backend-dev"
-frontend_service_name = "cstudio-frontend-dev" # This is the Cloud Run service name
-firebase_site_id      = "YOUR_FIREBASE_SITE_ID" # (Optional) Custom Firebase Hosting Site ID, defaults to the gcp_project_id
+backend_service_name         = "cstudio-backend-dev"
+frontend_service_name        = "cstudio-frontend-dev" # This is the Cloud Run service name
+frontend_iap_accessor_domain = "google.com" # The organization domain name authorized to access the frontend via IAP
 
 # --- GitHub Repo Details ---
 github_conn_name   = "gh-repo-owner-con"
@@ -14,8 +14,8 @@ github_repo_name   = "repo-owner-gcc-creative-studio"
 github_branch_name = "develop"
 
 # --- Custom Audiences ---
-backend_custom_audiences  = ["YOUR_OAUTH_WEB_CLIENT_ID_HERE", "YOUR_GCP_PROJECT_ID"]
-frontend_custom_audiences = ["YOUR_OAUTH_WEB_CLIENT_ID_HERE", "YOUR_GCP_PROJECT_ID"]
+backend_custom_audiences  = ["YOUR_OAUTH_WEB_CLIENT_ID_HERE", "kwpark-gcc-cs-2"]
+frontend_custom_audiences = ["YOUR_OAUTH_WEB_CLIENT_ID_HERE", "kwpark-gcc-cs-2"]
 
 # --- Service-Specific Environment Variables ---
 be_env_vars = {
@@ -71,4 +71,6 @@ apis_to_enable = [
   "firestore.googleapis.com",
   "texttospeech.googleapis.com",
   "workflows.googleapis.com",
+  "secretmanager.googleapis.com",
+  "iap.googleapis.com",
 ]

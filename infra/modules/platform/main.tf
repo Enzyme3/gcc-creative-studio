@@ -53,13 +53,14 @@ locals {
   region_code  = join("", [for s in split("-", var.gcp_region) : substr(s, 0, 1)])
   backend_url = "https://${var.backend_service_name}-${data.google_project.project.number}.${var.gcp_region}.run.app"
 
-  frontend_url = "https://${var.firebase_site_id}.web.app" # Predictable Firebase URL
+  frontend_url = "https://${var.frontend_service_name}-${data.google_project.project.number}.${var.gcp_region}.run.app"
 
   backend_env_vars = merge(
     lookup(var.be_env_vars, "common", {}),
     lookup(var.be_env_vars, var.environment, {}),
     {
       "CORS_ORIGINS"           = "[\"${local.frontend_url}\"]"
+      "FRONTEND_URL"           = local.frontend_url
       "GENMEDIA_BUCKET"        = google_storage_bucket.genmedia.name
       "SIGNING_SA_EMAIL"       = google_service_account.bucket_reader_sa.email
       "BACKEND_URL"            = local.backend_url
@@ -78,27 +79,39 @@ resource "google_cloudbuildv2_repository" "source_repo" {
   remote_uri        = "https://github.com/${var.github_repo_owner}/${var.github_repo_name}.git"
 }
 
-# Postgres Database related
-# 1. Read the Secret (Created by Bootstrap script)
-data "google_secret_manager_secret_version" "db_password" {
-  secret  = "creative-studio-db-password"
-  project = var.gcp_project_id
-  version = "latest"
+# Generate database password directly in Terraform
+resource "random_password" "db_password" {
+  length  = 16
+  special = false
+}
+
+resource "google_secret_manager_secret" "db_password_secret" {
+  secret_id = "creative-studio-db-password"
+  project   = var.gcp_project_id
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "db_password_version" {
+  secret      = google_secret_manager_secret.db_password_secret.id
+  secret_data = random_password.db_password.result
 }
 
 # 2. Call PostgreSQL Module
 module "postgresql" {
-  source      = "../postgresql"
-  project_id  = var.gcp_project_id
-  region      = var.gcp_region
+  source     = "../postgresql"
+  project_id = var.gcp_project_id
+  region     = var.gcp_region
   
-  # Pass the ACTUAL value to create the user
-  db_password = data.google_secret_manager_secret_version.db_password.secret_data
+  # Pass the generated random password
+  db_password = random_password.db_password.result
 }
 
 # --- Service Module Calls ---
 module "backend_service" {
-  source = "../cloud-run-service"
+  source = "../cloud-run-service-backend"
 
   gcp_project_id        = var.gcp_project_id
   gcp_region            = var.gcp_region
@@ -112,12 +125,12 @@ module "backend_service" {
   cloudbuild_yaml_path  = "backend/cloudbuild.yaml"
   included_files_glob   = ["backend/**"]
   container_env_vars    = local.backend_env_vars
-  runtime_secrets = var.backend_runtime_secrets
+  runtime_secrets       = var.backend_runtime_secrets
   custom_audiences      = var.backend_custom_audiences
   scaling_min_instances = 1
-  source_repository_id = google_cloudbuildv2_repository.source_repo.id
-  cpu = var.be_cpu
-  memory = var.be_memory
+  source_repository_id  = google_cloudbuildv2_repository.source_repo.id
+  cpu                   = var.be_cpu
+  memory                = var.be_memory
   build_substitutions   = merge(var.be_build_substitutions,
     {
       _REGION = var.gcp_region
@@ -134,35 +147,37 @@ module "backend_service" {
   db_secret_id              = "creative-studio-db-password"
 }
 
-resource "google_firebase_project" "default" {
-  provider = google-beta
-  project = var.gcp_project_id
-}
-
 module "frontend_service" {
-  source = "../firebase-hosting-service"
+  source = "../cloud-run-service-frontend"
 
-  source_repository_id = google_cloudbuildv2_repository.source_repo.id
-  gcp_project_id       = var.gcp_project_id
+  gcp_project_id        = var.gcp_project_id
   gcp_region            = var.gcp_region
-  firebase_project_id  = google_firebase_project.default.project
-  service_name         = var.gcp_project_id
-  environment          = var.environment
-  resource_prefix      = "cs-fe"
-  github_branch_name   = var.github_branch_name
-  cloudbuild_yaml_path = "frontend/cloudbuild-deploy.yaml"
-  included_files_glob  = ["frontend/**"]
-  firebase_site_id     = var.firebase_site_id != "" ? var.firebase_site_id : var.gcp_project_id
+  environment           = var.environment
+  service_name          = var.frontend_service_name
+  resource_prefix       = "cs-fe"
+  github_conn_name      = var.github_conn_name
+  github_repo_owner     = var.github_repo_owner
+  github_repo_name      = var.github_repo_name
+  github_branch_name    = var.github_branch_name
+  cloudbuild_yaml_path  = "frontend/cloudbuild-deploy.yaml"
+  included_files_glob   = ["frontend/**"]
+  container_env_vars    = {}
+  runtime_secrets       = {}
+  custom_audiences      = var.frontend_custom_audiences
+  scaling_min_instances = 0
+  scaling_max_instances = 100
+  source_repository_id  = google_cloudbuildv2_repository.source_repo.id
+  cpu                   = var.fe_cpu
+  memory                = var.fe_memory
+  iap_accessor_domain   = var.frontend_iap_accessor_domain
 
   build_substitutions = merge(
     var.fe_build_substitutions,
     {
       # This block should ONLY contain non-secret, underscore-prefixed values
-      _BACKEND_URL         = local.frontend_url # The frontend will redirect the api calls to the backend
-      _FE_SERVICE_NAME     = var.frontend_service_name
-      _BACKEND_SERVICE_ID  = var.backend_service_name
-      _FIREBASE_PROJECT_ID = var.gcp_project_id
-      _FIREBASE_SITE_ID    = var.firebase_site_id != "" ? var.firebase_site_id : var.gcp_project_id
+      _BACKEND_URL        = local.backend_url
+      _FE_SERVICE_NAME    = var.frontend_service_name
+      _BACKEND_SERVICE_ID = var.backend_service_name
     }
   )
 }
@@ -181,17 +196,4 @@ module "backend_secrets" {
   gcp_project_id    = var.gcp_project_id
   secret_names      = var.backend_secrets
   accessor_sa_email = module.backend_service.trigger_sa_email
-}
-
-# --- Cross-Module Permissions ---
-
-# Grant the Frontend's deploy trigger (which runs `firebase deploy`)
-# permission to "get" the Backend's Cloud Run service to validate the rewrite rule.
-resource "google_cloud_run_v2_service_iam_member" "fe_trigger_can_view_backend" {
-  provider = google-beta
-  project  = var.gcp_project_id
-  name     = module.backend_service.service_name
-  location = module.backend_service.location
-  role     = "roles/run.viewer"
-  member   = "serviceAccount:${module.frontend_service.trigger_sa_email}"
 }

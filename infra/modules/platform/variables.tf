@@ -87,3 +87,8 @@ variable "backend_runtime_secrets" {
   description = "Secrets to mount in the backend container at runtime."
   default     = {}
 }
+
+variable "frontend_iap_accessor_domain" {
+  type        = string
+  description = "The organization domain name authorized to access the frontend via IAP."
+}

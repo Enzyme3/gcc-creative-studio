@@ -12,17 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-output "url" {
-  description = "The default URL of the Firebase Hosting site."
-  value       = google_firebase_hosting_site.this.default_url
-}
-
-output "site_id" {
-  description = "The ID of the Firebase Hosting site."
-  value       = google_firebase_hosting_site.this.site_id
+output "service_url" {
+  description = "The URL of the deployed Cloud Run service."
+  value       = google_cloud_run_v2_service.this.uri
 }
 
 output "trigger_sa_email" {
   description = "The email of the service account used by the build trigger."
   value       = google_service_account.trigger_sa.email
+}
+
+output "service_name" {
+  description = "The name of the Cloud Run service."
+  value       = google_cloud_run_v2_service.this.name
+}
+
+output "location" {
+  description = "The location of the Cloud Run service."
+  value       = google_cloud_run_v2_service.this.location
 }

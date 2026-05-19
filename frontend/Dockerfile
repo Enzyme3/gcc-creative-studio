@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ARG BUILD_CMD=build-dev
+
 FROM node:20-alpine AS builder
+
+ARG BUILD_CMD
 
 WORKDIR /app
 COPY . /app/
 
 RUN npm ci
-RUN npm run build-dev
+RUN npm run ${BUILD_CMD}
 
 FROM nginx:alpine
 COPY --from=builder /app/dist/creative-studio/browser /usr/share/nginx/html

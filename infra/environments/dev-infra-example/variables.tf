@@ -125,3 +125,8 @@ variable "apis_to_enable" {
     "run.googleapis.com"               # Required for Cloud Run
   ]
 }
+
+variable "frontend_iap_accessor_domain" {
+  type        = string
+  description = "The organization domain name authorized to access the frontend via IAP."
+}

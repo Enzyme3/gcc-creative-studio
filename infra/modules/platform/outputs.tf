@@ -21,7 +21,7 @@ output "backend_service_url" {
 
 output "frontend_service_url" {
   description = "The URL of the deployed frontend service."
-  value       = module.frontend_service.url
+  value       = module.frontend_service.service_url
 }
 
 output "cloud_sql_connection_name" {

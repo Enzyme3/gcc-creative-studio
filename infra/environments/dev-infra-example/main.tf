@@ -52,12 +52,12 @@ module "creative_studio_platform" {
   backend_custom_audiences  = var.backend_custom_audiences
   be_env_vars               = var.be_env_vars
   frontend_service_name     = var.frontend_service_name
-  frontend_custom_audiences = var.frontend_custom_audiences
-  firebase_site_id          = var.firebase_site_id != "" ? var.firebase_site_id : var.gcp_project_id
-  github_conn_name          = var.github_conn_name
-  github_repo_owner         = var.github_repo_owner
-  github_repo_name          = var.github_repo_name
-  github_branch_name        = var.github_branch_name
+  frontend_custom_audiences    = var.frontend_custom_audiences
+  github_conn_name             = var.github_conn_name
+  github_repo_owner            = var.github_repo_owner
+  github_repo_name             = var.github_repo_name
+  github_branch_name           = var.github_branch_name
+  frontend_iap_accessor_domain = var.frontend_iap_accessor_domain
 
   frontend_secrets       = var.frontend_secrets
   backend_secrets        = var.backend_secrets
